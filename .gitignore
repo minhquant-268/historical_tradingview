@@ -1,0 +1,6 @@
+# Node modules
+node_modules/
+
+# Build output: ignore everything inside dist/ but keep a .gitkeep placeholder
+# Use anchored pattern so it matches the repo root
+/dist/*

@@ -1,0 +1,52 @@
+{
+    "name": "tradingview-historical-nodejs",
+    "version": "1.0.0",
+    "description": "Node.js conversion of TradingView historical data script",
+    "main": "main.js",
+    "scripts": {
+        "start": "node --trace-warnings main.js",
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "author": "Huy Le",
+    "license": "ISC",
+    "dependencies": {
+        "base64-js": "^1.5.1",
+        "csv-parser": "^3.0.0",
+        "dotenv": "^16.4.5",
+        "lodash": "^4.17.21",
+        "moment-timezone": "^0.6.0",
+        "msnodesqlv8": "^5.1.1",
+        "mssql": "^11.0.1",
+        "sequelize": "^6.37.3",
+        "sequelize-msnodesqlv8": "^0.2.6-beta.8",
+        "tedious": "^18.6.1",
+        "winston": "^3.14.2",
+        "ws": "^8.18.0"
+    },
+    "engines": {
+        "node": ">=18.0.0"
+    },
+    "bin": "main.js",
+    "pkg": {
+        "scripts": [
+            "*.js",
+            "services/**/*.js",
+            "utils/**/*.js",
+            "config/**/*.js"
+        ],
+        "assets": [
+            "nodeapp/**/*",
+            "historical_config.json"
+        ],
+        "targets": [
+            "node18-win-x64"
+        ],
+        "outputPath": "dist",
+        "env": {
+            "NODE_ENV": "production"
+        }
+    },
+    "devDependencies": {
+        "pkg": "^5.8.1"
+    }
+}
