@@ -60,8 +60,7 @@ class TradingViewWebSocket {
             logger.debug(`Thử kết nối tới WebSocket: ${Config.WEBSOCKET_URL}`);
             this.ws = new WebSocket(Config.WEBSOCKET_URL, {
                 headers: {
-                    Origin: 'https://www.tradingview.com/',
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                    Origin: 'https://www.tradingview.com/'
                 },
                 timeout: Config.CONNECTION_TIMEOUT
             });
@@ -277,6 +276,7 @@ class TradingViewWebSocket {
 
                         processed.push({
                             'provider:symbol': sanitizedSymbol,
+                            timestampMs,
                             timeframe,
                             timestamp,
                             open: parseFloat(values[1]),
@@ -471,7 +471,7 @@ class TradingViewWebSocket {
 
                 const currentTime = Date.now() / 1000;
                 if (currentTime - this.lastMessageTime > Config.PING_INTERVAL) {
-                    await this.send('~m~3~m~~h~ping');
+                    await this.send('~ping~');
                 }
 
                 if (currentTime - this.lastMessageTime > Config.PING_TIMEOUT) {

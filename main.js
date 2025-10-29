@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const csv = require('csv-parser');
+const csvParser = require('csv-parser');
 const moment = require('moment-timezone');
 
 // Import các module
@@ -15,53 +15,9 @@ const helper = new Helper();
 let ws = null;
 let configuredSymbols = [];
 let TIMEFRAMES = {};
-let authToken = null;
-let authCookies = null;
 let rawSymbols = [];
 
-/**
- * Load authentication token from CSV file
- */
-async function loadAuthToken() {
-    return new Promise((resolve, reject) => {
-        const csvPath = path.join(__dirname, 'nodeapp', 'websocket_tokens.csv');
-
-        if (!fs.existsSync(csvPath)) {
-            reject(new Error(`Token file not found: ${csvPath}`));
-            return;
-        }
-
-        let latestToken = null;
-        let latestCookies = null;
-
-        fs.createReadStream(csvPath)
-            .pipe(csv())
-            .on('data', (row) => {
-                if (row.token && row.cookies) {
-                    latestToken = row.token;
-                    latestCookies = row.cookies;
-                }
-            })
-            .on('end', () => {
-                if (latestToken && latestCookies) {
-                    authToken = latestToken;
-                    authCookies = latestCookies;
-                    logger.info('✅ Successfully loaded authentication token from CSV');
-                    resolve();
-                } else {
-                    reject(new Error('Invalid CSV format or no valid tokens found'));
-                }
-            })
-            .on('error', (error) => {
-                reject(new Error(`Error reading CSV file: ${error.message}`));
-            });
-    });
-}
-
-/**
- * Process setup for all symbols and timeframes
- */
-async function processSetup(ws, configuredSymbols) {    
+async function processSetup(ws, configuredSymbols) {
     const allTimeframes = [...new Set(configuredSymbols.map(([, tf]) => tf))].sort((a, b) => {
         const aNum = parseInt(a) || Infinity;
         const bNum = parseInt(b) || Infinity;
@@ -85,7 +41,7 @@ async function processSetup(ws, configuredSymbols) {
         logger.info(`Processing timeframe ${currentTf}m...`);
         const currentSymbols = configuredSymbols.filter(([, tf]) => tf === currentTf);
         console.log('Current symbols:', currentSymbols);
-        for (const [symbol, , currency] of currentSymbols) {            
+        for (const [symbol, , currency] of currentSymbols) {
             if (!ws.connected) {
                 logger.warn(`Connection lost while processing ${symbol}`);
                 break;
@@ -132,7 +88,7 @@ async function handleSaveCompletion(savePromise, symbol, timeframe) {
             logger.info(`✅ Saved ${symbol} ${timeframe}m | Progress: ${completed}/${total} (Remaining: ${remaining})`);
 
             // Check if all pairs completed
-                if (total > 0 && completed >= total) {
+            if (total > 0 && completed >= total) {
                 logger.info(`🎉 All ${completed}/${total} symbol-timeframe pairs processed!`);
                 await helper.saveHistoricalConfigLastTime(moment().format('YYYY-MM-DD HH:mm:ss'));
                 // Use the implemented close(graceful) method on the WebSocket instance
@@ -208,7 +164,29 @@ async function main() {
         logger.info(`Calculated bars needed: ${ws.bars}`);
 
         // Load authentication token
-        await loadAuthToken();
+        //await loadAuthToken();  
+        const isPackaged = process.pkg !== undefined;
+        const csvPath = isPackaged
+            ? path.join(path.dirname(process.execPath), '..', 'gen_token', 'websocket_tokens.csv')
+            : path.join(__dirname, 'nodeapp', 'websocket_tokens.csv');
+        logger.info(`📂 Tìm CSV tại: ${csvPath}`);
+        if (!fs.existsSync(csvPath)) {
+            throw new Error(`Không tìm thấy CSV: ${csvPath}`);
+        }
+        const results = await new Promise((resolve, reject) => {
+            const data = [];
+            fs.createReadStream(csvPath)
+                .pipe(csvParser())
+                .on('data', row => data.push(row))
+                .on('end', () => resolve(data))
+                .on('error', reject);
+        });
+
+        if (!results.length || !results[results.length - 1].token) {
+            throw new Error('Định dạng CSV không hợp lệ');
+        }
+        const authToken = results[results.length - 1].token;
+        
         ws.storeAuthToken(authToken);
 
         // Get timeframes from database
@@ -231,7 +209,7 @@ async function main() {
             logger.error('No valid symbols retrieved from database');
             return;
         }
-        
+
         // Create configured symbols list
         configuredSymbols = [];
         validSymbols.forEach(symbol => {
@@ -239,7 +217,7 @@ async function main() {
             if (parts.length >= 4) { // Ensure we have provider:symbol:asset_id:provider_id format
                 const baseSymbol = `${parts[0]}:${parts[1]}`;
                 const currency = parts[4] || '';
-                Object.keys(TIMEFRAMES).forEach(tfCall => {                    
+                Object.keys(TIMEFRAMES).forEach(tfCall => {
                     configuredSymbols.push([baseSymbol, tfCall, currency]);
                 });
             }
@@ -306,8 +284,8 @@ async function main() {
                             }
                         }
 
-                        if (messageType === 'timescale_update') {                          
-                            const processedData = ws.processRawData(msgData, symbol, timeframe, chartId, 'HISTORICAL');                            
+                        if (messageType === 'timescale_update') {
+                            const processedData = ws.processRawData(msgData, symbol, timeframe, chartId, 'HISTORICAL');
                             if (processedData && processedData.length > 0) {
                                 // Convert to DataFrame-like structure
                                 let df = processedData.map(item => ({
@@ -361,7 +339,7 @@ async function main() {
                                 } catch (error) {
                                     logger.error(`Lỗi khi xử lý thông tin symbol: ${error.message}`);
                                     return;
-                                }                               
+                                }
 
                                 // Reorder columns
                                 df = df.map(row => ({
