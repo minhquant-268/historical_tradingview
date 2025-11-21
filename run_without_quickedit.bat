@@ -59,8 +59,8 @@ echo Launching with Quick Edit Mode DISABLED...
 echo.
 
 REM Run PowerShell script to disable Quick Edit and start app
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0disable_quickedit.ps1" -ExePath "%EXE_PATH%"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0disable_quickedit.ps1" -ExePath "%EXE_PATH%" -NoPause
 
 echo.
 echo Application closed.
-pause
+exit

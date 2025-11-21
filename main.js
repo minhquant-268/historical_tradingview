@@ -17,7 +17,101 @@ let configuredSymbols = [];
 let TIMEFRAMES = {};
 let rawSymbols = [];
 
-async function processSetup(ws, configuredSymbols) {
+/**
+ * Filter configuredSymbols by historical last_time (UTC).
+ * Uses newCount formula for ALL timeframes (accurate regardless of scheduler run time).
+ * Returns an object { filteredConfiguredSymbols, selectedTfCalls }
+ */
+function filterTimeframesByLastTime(configuredSymbolsInput, timeframesMap, lastTimeHistoricalConfig) {
+    try {
+        const lastTimeStr = lastTimeHistoricalConfig || '';
+        let lastTimeUtc = null;
+        if (!lastTimeStr) {
+            lastTimeUtc = moment.utc().subtract(60, 'minutes');
+        } else {
+            lastTimeUtc = moment.utc(lastTimeStr, 'YYYY-MM-DD HH:mm:ss');
+            if (!lastTimeUtc.isValid()) lastTimeUtc = moment.utc().subtract(60, 'minutes');
+        }
+
+        const lastMin = Math.floor(lastTimeUtc.valueOf() / 60000);
+        const nowMin = Math.floor(moment.utc().valueOf() / 60000);
+
+        const selectedTfCalls = new Set();
+        function tfCallToMinutes(tfCall) {
+            if (/^\d+$/.test(tfCall)) return parseInt(tfCall, 10);
+            const map = {
+                'M1':1,'M2':2,'M3':3,'M4':4,'M5':5,'M10':10,'M15':15,'M20':20,
+                'M30':30,'M45':45,'M90':90,
+                'H1':60,'H2':120,'H3':180,'H4':240,'H6':360,
+                'D':1440,'W':10080,'MN':43200
+            };
+            return map[tfCall] || null;
+        }
+
+        logger.info(`Filter timeframes: last_time=${lastTimeUtc.format('YYYY-MM-DD HH:mm:ss')}, now=${moment.utc().format('YYYY-MM-DD HH:mm:ss')}`);
+        
+        for (const tfCall of Object.keys(timeframesMap)) {
+            const tfMin = tfCallToMinutes(tfCall);
+            if (!tfMin) {
+                logger.warn(`Skipped timeframe ${tfCall}: cannot convert to minutes`);
+                continue;
+            }
+            const newCount = Math.floor(nowMin / tfMin) - Math.floor(lastMin / tfMin);
+            logger.debug(`TF ${tfCall}: tfMin=${tfMin}, newCount=${newCount}`);
+            if (newCount > 0) selectedTfCalls.add(tfCall);
+        }
+
+        logger.info(`Selected timeframes: ${Array.from(selectedTfCalls).join(', ')}`);
+        const filteredConfiguredSymbols = configuredSymbolsInput.filter(([symbol, tfCall]) => selectedTfCalls.has(tfCall));
+        return { filteredConfiguredSymbols, selectedTfCalls };
+    } catch (err) {
+        throw err;
+    }
+}
+
+/**
+ * Load authentication token from CSV file
+ */
+async function loadAuthToken() {
+    return new Promise((resolve, reject) => {
+        const csvPath = path.join(__dirname, 'nodeapp', 'websocket_tokens.csv');
+
+        if (!fs.existsSync(csvPath)) {
+            reject(new Error(`Token file not found: ${csvPath}`));
+            return;
+        }
+
+        let latestToken = null;
+        let latestCookies = null;
+
+        fs.createReadStream(csvPath)
+            .pipe(csv())
+            .on('data', (row) => {
+                if (row.token && row.cookies) {
+                    latestToken = row.token;
+                    latestCookies = row.cookies;
+                }
+            })
+            .on('end', () => {
+                if (latestToken && latestCookies) {
+                    authToken = latestToken;
+                    authCookies = latestCookies;
+                    logger.info('✅ Successfully loaded authentication token from CSV');
+                    resolve();
+                } else {
+                    reject(new Error('Invalid CSV format or no valid tokens found'));
+                }
+            })
+            .on('error', (error) => {
+                reject(new Error(`Error reading CSV file: ${error.message}`));
+            });
+    });
+}
+
+/**
+ * Process setup for all symbols and timeframes
+ */
+async function processSetup(ws, configuredSymbols) {    
     const allTimeframes = [...new Set(configuredSymbols.map(([, tf]) => tf))].sort((a, b) => {
         const aNum = parseInt(a) || Infinity;
         const bNum = parseInt(b) || Infinity;
@@ -41,7 +135,7 @@ async function processSetup(ws, configuredSymbols) {
         logger.info(`Processing timeframe ${currentTf}m...`);
         const currentSymbols = configuredSymbols.filter(([, tf]) => tf === currentTf);
         console.log('Current symbols:', currentSymbols);
-        for (const [symbol, , currency] of currentSymbols) {
+        for (const [symbol, , currency] of currentSymbols) {            
             if (!ws.connected) {
                 logger.warn(`Connection lost while processing ${symbol}`);
                 break;
@@ -88,9 +182,9 @@ async function handleSaveCompletion(savePromise, symbol, timeframe) {
             logger.info(`✅ Saved ${symbol} ${timeframe}m | Progress: ${completed}/${total} (Remaining: ${remaining})`);
 
             // Check if all pairs completed
-            if (total > 0 && completed >= total) {
+                if (total > 0 && completed >= total) {
                 logger.info(`🎉 All ${completed}/${total} symbol-timeframe pairs processed!`);
-                await helper.saveHistoricalConfigLastTime(moment().format('YYYY-MM-DD HH:mm:ss'));
+                helper.saveHistoricalConfigLastTime(moment.utc().format('YYYY-MM-DD HH:mm:ss'));
                 // Use the implemented close(graceful) method on the WebSocket instance
                 await ws.close(true);
             } else if (total === 0) {
@@ -164,7 +258,7 @@ async function main() {
         logger.info(`Calculated bars needed: ${ws.bars}`);
 
         // Load authentication token
-        //await loadAuthToken();  
+        //await loadAuthToken();
         const isPackaged = process.pkg !== undefined;
         const csvPath = isPackaged
             ? path.join(path.dirname(process.execPath), '..', 'gen_token', 'websocket_tokens.csv')
@@ -209,7 +303,7 @@ async function main() {
             logger.error('No valid symbols retrieved from database');
             return;
         }
-
+        
         // Create configured symbols list
         configuredSymbols = [];
         validSymbols.forEach(symbol => {
@@ -217,7 +311,7 @@ async function main() {
             if (parts.length >= 4) { // Ensure we have provider:symbol:asset_id:provider_id format
                 const baseSymbol = `${parts[0]}:${parts[1]}`;
                 const currency = parts[4] || '';
-                Object.keys(TIMEFRAMES).forEach(tfCall => {
+                Object.keys(TIMEFRAMES).forEach(tfCall => {                    
                     configuredSymbols.push([baseSymbol, tfCall, currency]);
                 });
             }
@@ -226,7 +320,19 @@ async function main() {
         logger.info(`Total symbols from DB: ${configuredSymbols.length}`);
         logger.info(`Configured symbols: ${JSON.stringify(configuredSymbols.slice(0, 5))}...`);
 
-        ws.storeSymbols(configuredSymbols);
+        // Filter timeframes using historical_config.last_time (UTC-based)
+        let filteredConfiguredSymbols = configuredSymbols;
+        try {
+            const result = filterTimeframesByLastTime(configuredSymbols, TIMEFRAMES, lastTimeHistoricalConfig);
+            filteredConfiguredSymbols = result.filteredConfiguredSymbols;
+            logger.info(`Selected ${result.selectedTfCalls.size} timeframe(s) for this run. Symbol-timeframe pairs after filter: ${filteredConfiguredSymbols.length}`);
+            // Store only filtered list to reduce setup work
+            ws.storeSymbols(filteredConfiguredSymbols);
+        } catch (e) {
+            logger.error(`Error filtering timeframes by last_time: ${e.message}`);
+            // fallback to store all
+            ws.storeSymbols(configuredSymbols);
+        }
 
         // Connect to WebSocket
         if (!await ws.connect()) {
@@ -238,7 +344,7 @@ async function main() {
         await ws.sendAuthToken(authToken);
 
         // Start setup process
-        const timeframeTask = processSetup(ws, configuredSymbols);
+        const timeframeTask = processSetup(ws, filteredConfiguredSymbols);
 
         let lastMonitorTime = Date.now() / 1000;
 
@@ -284,8 +390,8 @@ async function main() {
                             }
                         }
 
-                        if (messageType === 'timescale_update') {
-                            const processedData = ws.processRawData(msgData, symbol, timeframe, chartId, 'HISTORICAL');
+                        if (messageType === 'timescale_update') {                          
+                            const processedData = ws.processRawData(msgData, symbol, timeframe, chartId, 'HISTORICAL');                            
                             if (processedData && processedData.length > 0) {
                                 // Convert to DataFrame-like structure
                                 let df = processedData.map(item => ({
@@ -339,7 +445,7 @@ async function main() {
                                 } catch (error) {
                                     logger.error(`Lỗi khi xử lý thông tin symbol: ${error.message}`);
                                     return;
-                                }
+                                }                               
 
                                 // Reorder columns
                                 df = df.map(row => ({

@@ -77,8 +77,8 @@ class Helper {
         }
 
         try {
-            const lastDateTime = moment(lastTime, 'YYYY-MM-DD HH:mm:ss');
-            const now = moment();
+            const lastDateTime = moment.utc(lastTime, 'YYYY-MM-DD HH:mm:ss');
+            const now = moment.utc();
             const diffMinutes = now.diff(lastDateTime, 'minutes');
             const requiredBars = Math.max(1, diffMinutes);
 

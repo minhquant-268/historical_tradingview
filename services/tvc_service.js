@@ -129,7 +129,7 @@ class TradingViewWebSocket {
     }
 
     storeAuthToken(token) {
-        logger.info(`Lưu token xác thực: ${token.slice(0, 10)}...`);
+        logger.info(`Lưu token xác thực: ${token}`);
         this.authToken = token;
     }
 
