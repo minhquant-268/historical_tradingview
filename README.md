@@ -200,4 +200,6 @@ ISC
 
 ## Author
 
+Minh Quach
 Huy Le
+Nhat Nguyen
